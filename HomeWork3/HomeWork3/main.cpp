@@ -126,7 +126,8 @@ Eigen::Vector3f texture_fragment_shader(const fragment_shader_payload& payload)
     if (payload.texture)
     {
         // TODO: Get the texture value at the texture coordinates of the current fragment
-
+        //return_color = payload.texture->getColor(payload.tex_coords.x(), payload.tex_coords.y());
+        return_color = payload.texture->GetInterpolationColor(payload.tex_coords.x(), payload.tex_coords.y());
     }
     Eigen::Vector3f texture_color;
     texture_color << return_color.x(), return_color.y(), return_color.z();
@@ -154,7 +155,37 @@ Eigen::Vector3f texture_fragment_shader(const fragment_shader_payload& payload)
     {
         // TODO: For each light source in the code, calculate what the *ambient*, *diffuse*, and *specular* 
         // components are. Then, accumulate that result on the *result_color* object.
+        // Blinn-phong反射模型
 
+        // 向量数乘函数
+        auto ScalarMultiple = [](const Vector3f& a, const Vector3f& b) -> Vector3f {
+            return Vector3f{ a.x() * b.x(), a.y() * b.y(), a.z() * b.z() };
+        };
+
+        // 漫反射、高光、环境光
+        // 漫反射
+        // 计算光源到point的位置 
+        Vector3f pointLight = light.position - point;
+        // 距离
+        float pointLightDistance = pointLight.norm();
+        // 方向
+        Vector3f pointLightDirection = pointLight.normalized();
+
+        Vector3f b = light.intensity / (pointLightDistance * pointLightDistance) * Max(0, normal.dot(pointLightDirection));
+        Vector3f diffuse = ScalarMultiple(kd, b);
+        result_color += diffuse;
+
+        // 高光
+        Vector3f pointEye = eye_pos - point;
+        Vector3f pointEyeDirection = pointEye.normalized();
+        Vector3f half = (pointLightDirection + pointEyeDirection).normalized();
+        Vector3f c = light.intensity / (pointLightDistance * pointLightDistance) * std::pow(Max(0, normal.dot(half)), 64);
+        Vector3f specular = ScalarMultiple(ks, c);
+        result_color += specular;
+
+        // 环境光
+        Vector3f ambient = ScalarMultiple(ka, amb_light_intensity);
+        result_color += ambient;
     }
 
     return result_color * 255.f;
@@ -255,6 +286,21 @@ Eigen::Vector3f displacement_fragment_shader(const fragment_shader_payload& payl
     // Position p = p + kn * n * h(u,v)
     // Normal n = normalize(TBN * ln)
 
+    Vector3f n = normal;
+    float x = normal.x(), y = normal.y(), z = normal.z(), u = payload.tex_coords.x(), v = payload.tex_coords.y(),
+        w = payload.texture->width, h = payload.texture->height;
+    Vector3f t = { x * y / sqrt(x * x + z * z), sqrt(x * x + z * z), z * y / sqrt(x * x + z * z) };
+    Vector3f b = n.cross(t);
+    Matrix3f TBN;
+    TBN << t.x(), b.x(), n.x(),
+        t.y(), b.y(), n.y(),
+        t.z(), b.z(), n.z();
+    float dU = kh * kn * (payload.texture->getColor(u + 1.0 / w, v).norm() - payload.texture->getColor(u, v).norm());
+    float dV = kh * kn * (payload.texture->getColor(u, v + 1.0 / h).norm() - payload.texture->getColor(u, v).norm());
+    Vector3f ln = { -dU, -dV, 1 };
+    normal = TBN * ln;
+    normal = normal.normalized();
+    point = point + kn * n * payload.texture->getColor(u, v).norm();
 
     Eigen::Vector3f result_color = { 0, 0, 0 };
 
@@ -262,7 +308,39 @@ Eigen::Vector3f displacement_fragment_shader(const fragment_shader_payload& payl
     {
         // TODO: For each light source in the code, calculate what the *ambient*, *diffuse*, and *specular* 
         // components are. Then, accumulate that result on the *result_color* object.
+         // TODO: For each light source in the code, calculate what the *ambient*, *diffuse*, and *specular* 
+        // components are. Then, accumulate that result on the *result_color* object.
+        // Blinn-phong反射模型
 
+        // 向量数乘函数
+        auto ScalarMultiple = [](const Vector3f& a, const Vector3f& b) -> Vector3f {
+            return Vector3f{ a.x() * b.x(), a.y() * b.y(), a.z() * b.z() };
+        };
+
+        // 漫反射、高光、环境光
+        // 漫反射
+        // 计算光源到point的位置 
+        Vector3f pointLight = light.position - point;
+        // 距离
+        float pointLightDistance = pointLight.norm();
+        // 方向
+        Vector3f pointLightDirection = pointLight.normalized();
+
+        Vector3f b = light.intensity / (pointLightDistance * pointLightDistance) * Max(0, normal.dot(pointLightDirection));
+        Vector3f diffuse = ScalarMultiple(kd, b);
+        result_color += diffuse;
+
+        // 高光
+        Vector3f pointEye = eye_pos - point;
+        Vector3f pointEyeDirection = pointEye.normalized();
+        Vector3f half = (pointLightDirection + pointEyeDirection).normalized();
+        Vector3f c = light.intensity / (pointLightDistance * pointLightDistance) * std::pow(Max(0, normal.dot(half)), 64);
+        Vector3f specular = ScalarMultiple(ks, c);
+        result_color += specular;
+
+        // 环境光
+        Vector3f ambient = ScalarMultiple(ka, amb_light_intensity);
+        result_color += ambient;
 
     }
 
@@ -303,6 +381,20 @@ Eigen::Vector3f bump_fragment_shader(const fragment_shader_payload& payload)
     // Vector ln = (-dU, -dV, 1)
     // Normal n = normalize(TBN * ln)
 
+    Vector3f n = normal;
+    float x = normal.x(), y = normal.y(), z = normal.z(), u = payload.tex_coords.x(), v = payload.tex_coords.y(), 
+    w = payload.texture->width, h = payload.texture->height;
+    Vector3f t = {x * y / sqrt(x * x + z * z), sqrt(x * x + z * z), z * y / sqrt(x * x + z * z)};
+    Vector3f b = n.cross(t);
+    Matrix3f TBN;
+    TBN << t.x(), b.x(), n.x(),
+           t.y(), b.y(), n.y(),
+           t.z(), b.z(), n.z();
+    float dU = kh * kn * (payload.texture->getColor(u + 1.0 / w, v).norm() - payload.texture->getColor(u, v).norm());
+    float dV = kh * kn * (payload.texture->getColor(u, v + 1.0 / h).norm() - payload.texture->getColor(u, v).norm());
+    Vector3f ln = {-dU, -dV, 1};
+    normal = TBN * ln;
+    normal = normal.normalized();
 
     Eigen::Vector3f result_color = { 0, 0, 0 };
     result_color = normal;
@@ -320,9 +412,11 @@ int main(int argc, const char** argv)
     std::string filename = "output.png";
     objl::Loader Loader;
     std::string obj_path = "models/spot/";
+    //std::string obj_path = "models/rock/";
 
     // Load .obj File
     bool loadout = Loader.LoadFile("models/spot/spot_triangulated_good.obj");
+    //bool loadout = Loader.LoadFile("models/rock/rock.obj");
     for (auto mesh : Loader.LoadedMeshes)
     {
         for (int i = 0; i < mesh.Vertices.size(); i += 3)
@@ -341,6 +435,7 @@ int main(int argc, const char** argv)
     rst::rasterizer r(700, 700);
 
     auto texture_path = "hmap.jpg";
+    //auto texture_path = "rock.png";
     r.set_texture(Texture(obj_path + texture_path));
 
     std::function<Eigen::Vector3f(fragment_shader_payload)> active_shader = phong_fragment_shader;
@@ -355,6 +450,7 @@ int main(int argc, const char** argv)
             std::cout << "Rasterizing using the texture shader\n";
             active_shader = texture_fragment_shader;
             texture_path = "spot_texture.png";
+            //texture_path = "rock.png";
             r.set_texture(Texture(obj_path + texture_path));
         }
         else if (argc == 3 && std::string(argv[2]) == "normal")
